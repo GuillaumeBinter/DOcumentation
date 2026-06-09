@@ -177,10 +177,7 @@ dig _kerberos._tcp.ironforge.lab SRV
 Ouvrir les ports FreeIPA avant l'installation :
 
 ```bash
-sudo systemctl enable --now firewalld
-sudo firewall-cmd --permanent --add-service=freeipa-4
-sudo firewall-cmd --permanent --add-service=dns
-sudo firewall-cmd --permanent --add-service=ntp
+sudo dnf install freeipa-server freeipa-server-dns freeipa-client -y
 sudo firewall-cmd --reload
 ```
 
@@ -205,7 +202,7 @@ Ports utilises :
 
 ---
 
-## 8. Verifier l'heure
+## 8. Synchroniser l'heure
 
 Kerberos exige une heure coherente entre `ldaps01`, `ldaps02` et les clients.
 
@@ -213,28 +210,24 @@ Sur `ldaps02` :
 
 ```bash
 sudo systemctl enable --now chronyd
-timedatectl
 chronyc tracking
+timedatectl
 ```
-
-Kerberos depend fortement de la synchronisation NTP. Un drift important peut faire echouer l'enrollment ou l'authentification.
 
 ---
 
 ## 9. Installer les paquets sur `ldaps02`
 
-Sur Rocky/RHEL/Alma 9, installer les paquets IPA serveur, DNS et client :
-
-```bash
-sudo dnf install -y ipa-server ipa-server-dns ipa-client
-```
-
-Le paquet `ipa-server` suffit normalement pour repliquer la CA avec `--setup-ca`. Le paquet `ipa-server-dns` est necessaire pour le role DNS integre avec `--setup-dns`.
-
-Alternative si votre distribution expose les noms `freeipa-*` :
+Installer les paquets FreeIPA serveur, DNS et client :
 
 ```bash
 sudo dnf install -y freeipa-server freeipa-server-dns freeipa-client
+```
+
+Alternative si Rocky ne trouve pas les paquets `freeipa-*` :
+
+```bash
+sudo dnf install -y ipa-server ipa-server-dns ipa-client
 ```
 
 ---
@@ -273,24 +266,28 @@ ipa host-show ldaps02.ironforge.lab
 
 ---
 
-## 11. Enroller `ldaps02` comme client IPA
+## 11. Installer le client IPA sur `ldaps02`
 
-Avant d'installer le role replica, enroler `ldaps02` comme client du domaine FreeIPA.
+Cette etape est utile si vous voulez enroler `ldaps02` comme client avant promotion en replica.
 
-Sur `ldaps02`, lancer :
+Avec le compte admin :
 
 ```bash
 sudo ipa-client-install \
+  --server=ldaps01.ironforge.lab \
   --domain=ironforge.lab \
   --realm=IRONFORGE.LAB \
-  --server=ldaps01.ironforge.lab \
   --mkhomedir
 ```
 
-Authentifier ensuite l'admin :
+Ou avec OTP :
 
 ```bash
-kinit admin
+sudo ipa-client-install \
+  --server=ldaps01.ironforge.lab \
+  --domain=ironforge.lab \
+  --realm=IRONFORGE.LAB \
+  --password='OTP_GENERE_SUR_LDAPS01'
 ```
 
 Verifier :
@@ -309,12 +306,10 @@ Sur `ldaps02`, lancer :
 
 ```bash
 sudo ipa-replica-install \
-  --setup-ca \
   --setup-dns \
+  --setup-ca \
   --forwarder=192.0.2.1
 ```
-
-Dans votre lab reel, remplacez le forwarder generique `192.0.2.1` par votre DNS amont, par exemple `10.31.10.1`.
 
 Explication :
 
@@ -322,7 +317,7 @@ Explication :
 |---|---|
 | `--setup-dns` | installe DNS/BIND sur le replica |
 | `--setup-ca` | installe une CA replica Dogtag |
-| `--forwarder=192.0.2.1` | configure le DNS amont generique a remplacer par votre vrai forwarder |
+| `--forwarder=192.0.2.1` | configure le DNS amont generique |
 
 Pendant l'installation, verifier les valeurs :
 
@@ -638,12 +633,9 @@ sudo firewall-cmd --permanent --add-service=dns
 sudo firewall-cmd --permanent --add-service=ntp
 sudo firewall-cmd --reload
 sudo systemctl enable --now chronyd
-timedatectl
-chronyc tracking
-sudo dnf install -y ipa-server ipa-server-dns ipa-client
-sudo ipa-client-install --domain=ironforge.lab --realm=IRONFORGE.LAB --server=ldaps01.ironforge.lab --mkhomedir
-kinit admin
-sudo ipa-replica-install --setup-ca --setup-dns --forwarder=192.0.2.1
+sudo dnf install -y freeipa-server freeipa-server-dns freeipa-client
+sudo ipa-client-install --server=ldaps01.ironforge.lab --domain=ironforge.lab --realm=IRONFORGE.LAB --mkhomedir
+sudo ipa-replica-install --setup-dns --setup-ca --forwarder=192.0.2.1
 sudo ipactl status
 ```
 
