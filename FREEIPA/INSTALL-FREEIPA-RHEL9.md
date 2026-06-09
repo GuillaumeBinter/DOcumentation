@@ -118,9 +118,7 @@ sudo systemctl enable --now firewalld
 Ouvrez les services FreeIPA, DNS et NTP :
 
 ```bash
-sudo firewall-cmd --permanent --add-service=freeipa-4
-sudo firewall-cmd --permanent --add-service=dns
-sudo firewall-cmd --permanent --add-service=ntp
+sudo firewall-cmd --add-service={freeipa-ldap,freeipa-ldaps,dns,ntp,http,https,kerberos} --permanent
 sudo firewall-cmd --reload
 ```
 
@@ -150,6 +148,7 @@ Les ports concernes sont :
 Depuis le serveur :
 
 ```bash
+sudo dnf install freeipa-server freeipa-server-dns freeipa-client -y
 sudo ipa-server-install --setup-dns
 ```
 
@@ -217,7 +216,7 @@ FreeIPA a detecte le serveur DNS suivant dans `/etc/resolv.conf` :
 192.0.2.1
 ```
 
-Il a ete ajoute comme forwarder :
+Il a ete ajoute comme passerelle :
 
 ```text
 DNS forwarders: 192.0.2.1
@@ -456,41 +455,6 @@ L'installation de FreeIPA est terminee avec succes.
 
 L'installeur rappelle les ports reseau necessaires. Ils doivent deja avoir ete ouverts avant l'installation dans la section `4. Preparer firewalld avant l'installation`.
 
-### 10.1 TCP
-
-| Port | Service |
-|---:|---|
-| 80 | HTTP |
-| 443 | HTTPS |
-| 389 | LDAP |
-| 636 | LDAPS |
-| 88 | Kerberos |
-| 464 | Kerberos password change |
-| 53 | DNS / BIND |
-
-### 10.2 UDP
-
-| Port | Service |
-|---:|---|
-| 88 | Kerberos |
-| 464 | Kerberos password change |
-| 53 | DNS / BIND |
-| 123 | NTP |
-
-Controle `firewalld` :
-
-```bash
-sudo firewall-cmd --list-services
-```
-
-Si les services ne sont pas presents, appliquez la configuration :
-
-```bash
-sudo firewall-cmd --permanent --add-service=freeipa-4
-sudo firewall-cmd --permanent --add-service=dns
-sudo firewall-cmd --permanent --add-service=ntp
-sudo firewall-cmd --reload
-```
 
 ---
 
@@ -522,13 +486,7 @@ IRONFORGE.LAB
 sudo ipactl status
 ```
 
-### 11.3 Tester l'API FreeIPA
-
-```bash
-ipa ping
-```
-
-### 11.4 Tester DNS
+### 11.3 Tester DNS
 
 ```bash
 dig ldaps01.ironforge.lab
@@ -552,196 +510,9 @@ Connexion :
 Utilisateur : admin
 Mot de passe : mot de passe IPA admin defini pendant l'installation
 ```
-
 ---
 
-## 12. Certificat CA a sauvegarder
-
-L'installeur indique :
-
-```text
-Be sure to back up the CA certificates stored in /root/cacert.p12
-These files are required to create replicas. The password for these
-files is the Directory Manager password
-```
-
-Action recommandee :
-
-```bash
-sudo ls -lh /root/cacert.p12
-```
-
-Copiez ce fichier dans un emplacement de sauvegarde securise.
-
-Important :
-
-- ce fichier est necessaire pour creer des replicas ;
-- son mot de passe est celui du `Directory Manager` ;
-- il ne doit pas etre stocke dans un depot Git.
-
----
-
-## 13. Creer un utilisateur de test
-
-Obtenir un ticket admin :
-
-```bash
-kinit admin
-```
-
-Creer un utilisateur :
-
-```bash
-ipa user-add thomas --first=Thomas --last=Admin --password
-```
-
-Verifier :
-
-```bash
-ipa user-find thomas
-```
-
----
-
-## 14. Ajouter un client Rocky Linux au domaine
-
-Sur un client, configurez d'abord le DNS pour pointer vers le serveur FreeIPA :
-
-```bash
-sudo nmcli connection modify ens192 ipv4.dns 192.0.2.10
-sudo nmcli connection up ens192
-```
-
-Tester la resolution :
-
-```bash
-dig ldaps01.ironforge.lab
-dig _ldap._tcp.ironforge.lab SRV
-```
-
-Installer le client :
-
-```bash
-sudo dnf install -y freeipa-client
-```
-
-Alternative si le paquet `freeipa-client` n'est pas trouve :
-
-```bash
-sudo dnf install -y ipa-client
-```
-
-Enroler le client :
-
-```bash
-sudo ipa-client-install \
-  --server=ldaps01.ironforge.lab \
-  --domain=ironforge.lab \
-  --realm=IRONFORGE.LAB \
-  --mkhomedir
-```
-
-Tester un utilisateur FreeIPA :
-
-```bash
-getent passwd thomas
-su - thomas
-```
-
----
-
-## 15. Commandes de controle utiles
-
-```bash
-hostname -f
-ip addr
-cat /etc/resolv.conf
-timedatectl
-chronyc tracking
-sudo ipactl status
-sudo systemctl status named
-sudo systemctl status httpd
-sudo systemctl status krb5kdc
-sudo systemctl status dirsrv@IRONFORGE-LAB
-kinit admin
-klist
-ipa ping
-ipa user-find
-ipa dnszone-find
-```
-
----
-
-## 16. Logs importants
-
-| Fichier | Role |
-|---|---|
-| `/var/log/ipaserver-install.log` | Log complet de l'installation serveur |
-| `/var/log/ipaclient-install.log` | Log de la partie client IPA |
-| `/var/log/httpd/error_log` | Interface web/API |
-| `/var/log/krb5kdc.log` | Kerberos KDC |
-| `/var/log/dirsrv/slapd-IRONFORGE-LAB/` | LDAP Directory Server |
-| `/var/log/messages` | Logs systeme |
-
----
-
-## 17. Depannage rapide
-
-### 17.1 DNS forwarder sans DNSSEC
-
-Message observe :
-
-```text
-DNS server 192.0.2.1 does not support DNSSEC
-WARNING: DNSSEC validation will be disabled
-```
-
-Ce n'est pas bloquant pour l'installation. Pour corriger, utilisez un forwarder compatible DNSSEC ou gardez DNSSEC desactive dans ce lab.
-
-### 17.2 Probleme de resolution DNS
-
-Tester :
-
-```bash
-dig ldaps01.ironforge.lab
-dig @192.0.2.10 ldaps01.ironforge.lab
-dig @192.0.2.10 _ldap._tcp.ironforge.lab SRV
-```
-
-Verifier `/etc/resolv.conf` :
-
-```bash
-cat /etc/resolv.conf
-```
-
-Le serveur FreeIPA doit utiliser `127.0.0.1` ou `192.0.2.10` comme DNS.
-
-### 17.3 Probleme Kerberos
-
-Tester :
-
-```bash
-kinit admin
-klist
-```
-
-Si l'erreur indique un decalage horaire :
-
-```bash
-chronyc tracking
-sudo systemctl restart chronyd
-```
-
-### 17.4 Relancer tous les services FreeIPA
-
-```bash
-sudo ipactl restart
-sudo ipactl status
-```
-
----
-
-## 18. Checklist finale
+## 12. Checklist finale
 
 - [ ] `ipa-server-install --setup-dns` s'est termine avec succes.
 - [ ] Le serveur est `ldaps01.ironforge.lab`.
@@ -762,7 +533,7 @@ sudo ipactl status
 
 ---
 
-## 19. Transcript d'installation fourni
+## 13. Transcript d'installation fourni
 
 Extrait principal du transcript :
 
